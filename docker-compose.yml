@@ -1,0 +1,39 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: cmd/gateway/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+
+  controlplane:
+    build:
+      context: .
+      dockerfile: cmd/controlplane/Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+
+  tier0-fast:
+    build: ./services/workers/tier0_fast
+    ports:
+      - "8090:8090"
+    environment:
+      - PORT=8090
+
+  tier1-mid:
+    build: ./services/workers/tier1_mid
+    ports:
+      - "8091:8091"
+    environment:
+      - PORT=8091
+
+  tier2-best:
+    build: ./services/workers/tier2_best
+    ports:
+      - "8092:8092"
+    environment:
+      - PORT=8092
