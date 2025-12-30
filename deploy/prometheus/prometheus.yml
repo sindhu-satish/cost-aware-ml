@@ -10,3 +10,7 @@ scrape_configs:
     static_configs:
       - targets: ['controlplane:8081']
 
+  - job_name: 'otel-collector'
+    static_configs:
+      - targets: ['otel-collector:8889']
+

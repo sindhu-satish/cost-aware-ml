@@ -11,6 +11,57 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./db/migrations:/docker-entrypoint-initdb.d:ro
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+  nats:
+    image: nats:2.10-alpine
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: ["--jetstream", "--store_dir=/data"]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./deploy/otel-collector/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      - prometheus
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
   gateway:
     build:
       context: .
@@ -20,12 +71,14 @@ services:
     environment:
       - PORT=8080
       - CONTROLPLANE_URL=http://controlplane:8081
-      - TIER0_URL=http://tier0-fast:8090
-      - TIER1_URL=http://tier1-mid:8091
-      - TIER2_URL=http://tier2-best:8092
       - DATABASE_URL=postgres://costaware:costaware@postgres:5432/costaware?sslmode=disable
+      - REDIS_URL=redis://redis:6379
+      - NATS_URL=nats://nats:4222
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
     depends_on:
       - postgres
+      - redis
+      - nats
       - controlplane
 
   controlplane:
@@ -39,7 +92,12 @@ services:
       - TIER0_URL=http://tier0-fast:8090
       - TIER1_URL=http://tier1-mid:8091
       - TIER2_URL=http://tier2-best:8092
+      - REDIS_URL=redis://redis:6379
+      - NATS_URL=nats://nats:4222
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
     depends_on:
+      - redis
+      - nats
       - tier0-fast
       - tier1-mid
       - tier2-best
@@ -65,17 +123,17 @@ services:
     environment:
       - PORT=8092
 
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
+  simulator:
+    build:
+      context: .
+      dockerfile: cmd/simulator/Dockerfile
+    environment:
+      - GATEWAY_URL=http://gateway:8080
+    depends_on:
+      - gateway
 
 volumes:
   postgres_data:
+  redis_data:
   prometheus_data:
+  grafana_data:

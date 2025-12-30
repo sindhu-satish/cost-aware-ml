@@ -1,0 +1,32 @@
+{
+  "dashboard": {
+    "title": "Cost-Aware ML Inference",
+    "panels": [
+      {
+        "title": "Request Rate",
+        "targets": [{"expr": "rate(gateway_requests_total[5m])"}],
+        "type": "graph"
+      },
+      {
+        "title": "P99 Latency by Tier",
+        "targets": [
+          {"expr": "histogram_quantile(0.99, gateway_request_duration_seconds_bucket{tier=\"tier0\"})"},
+          {"expr": "histogram_quantile(0.99, gateway_request_duration_seconds_bucket{tier=\"tier1\"})"},
+          {"expr": "histogram_quantile(0.99, gateway_request_duration_seconds_bucket{tier=\"tier2\"})"}
+        ],
+        "type": "graph"
+      },
+      {
+        "title": "Tier Selection Distribution",
+        "targets": [{"expr": "sum by (tier) (controlplane_decisions_total)"}],
+        "type": "piechart"
+      },
+      {
+        "title": "Error Rate",
+        "targets": [{"expr": "rate(gateway_requests_total{status=~\"error|.*_error\"}[5m])"}],
+        "type": "graph"
+      }
+    ]
+  }
+}
+
