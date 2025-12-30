@@ -7,7 +7,33 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+var (
+	decisionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "controlplane_decisions_total",
+			Help: "Total number of tier decisions",
+		},
+		[]string{"tier"},
+	)
+	decisionDuration = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "controlplane_decision_duration_seconds",
+			Help:    "Decision duration in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(decisionsTotal)
+	prometheus.MustRegister(decisionDuration)
+}
 
 var tier0URL = os.Getenv("TIER0_URL")
 var tier1URL = os.Getenv("TIER1_URL")
@@ -29,12 +55,19 @@ func main() {
 		port = "8081"
 	}
 
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "service": "controlplane"})
 	})
 
+	http.Handle("/metrics", promhttp.Handler())
+
 	http.HandleFunc("/decide", func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -62,16 +95,27 @@ func main() {
 			workerURL = tier2URL
 		}
 
-		workerResp, err := http.Post(workerURL+"/infer", "application/json", bytes.NewBuffer(body))
+		workerResp, err := client.Post(workerURL+"/infer", "application/json", bytes.NewBuffer(body))
 		if err != nil {
+			decisionsTotal.WithLabelValues("error").Inc()
 			http.Error(w, "worker error", http.StatusInternalServerError)
 			return
 		}
 		defer workerResp.Body.Close()
 
+		if workerResp.StatusCode != http.StatusOK {
+			decisionsTotal.WithLabelValues("error").Inc()
+			http.Error(w, "worker error", http.StatusInternalServerError)
+			return
+		}
+
 		var result map[string]interface{}
 		json.NewDecoder(workerResp.Body).Decode(&result)
 		result["tier"] = tier
+
+		duration := time.Since(start).Seconds()
+		decisionDuration.Observe(duration)
+		decisionsTotal.WithLabelValues(tier).Inc()
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result)
@@ -80,4 +124,3 @@ func main() {
 	log.Printf("controlplane listening on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
-

@@ -1,4 +1,16 @@
 services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: costaware
+      POSTGRES_PASSWORD: costaware
+      POSTGRES_DB: costaware
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+
   gateway:
     build:
       context: .
@@ -11,6 +23,10 @@ services:
       - TIER0_URL=http://tier0-fast:8090
       - TIER1_URL=http://tier1-mid:8091
       - TIER2_URL=http://tier2-best:8092
+      - DATABASE_URL=postgres://costaware:costaware@postgres:5432/costaware?sslmode=disable
+    depends_on:
+      - postgres
+      - controlplane
 
   controlplane:
     build:
@@ -23,6 +39,10 @@ services:
       - TIER0_URL=http://tier0-fast:8090
       - TIER1_URL=http://tier1-mid:8091
       - TIER2_URL=http://tier2-best:8092
+    depends_on:
+      - tier0-fast
+      - tier1-mid
+      - tier2-best
 
   tier0-fast:
     build: ./services/workers/tier0_fast
@@ -44,3 +64,18 @@ services:
       - "8092:8092"
     environment:
       - PORT=8092
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+volumes:
+  postgres_data:
+  prometheus_data:
