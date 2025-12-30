@@ -7,6 +7,10 @@ services:
       - "8080:8080"
     environment:
       - PORT=8080
+      - CONTROLPLANE_URL=http://controlplane:8081
+      - TIER0_URL=http://tier0-fast:8090
+      - TIER1_URL=http://tier1-mid:8091
+      - TIER2_URL=http://tier2-best:8092
 
   controlplane:
     build:
@@ -16,6 +20,9 @@ services:
       - "8081:8081"
     environment:
       - PORT=8081
+      - TIER0_URL=http://tier0-fast:8090
+      - TIER1_URL=http://tier1-mid:8091
+      - TIER2_URL=http://tier2-best:8092
 
   tier0-fast:
     build: ./services/workers/tier0_fast

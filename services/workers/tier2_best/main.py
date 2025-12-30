@@ -1,6 +1,6 @@
 import os
 import time
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 app = FastAPI()
 
@@ -9,8 +9,9 @@ def health():
     return {"status": "ok", "service": "tier2_best"}
 
 @app.post("/infer")
-def infer(request: dict):
-    time.sleep(0.250)  
+async def infer(request: Request):
+    await request.json()
+    time.sleep(0.250)
     return {
         "result": "prediction_tier2",
         "confidence": 0.96,
