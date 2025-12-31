@@ -21,5 +21,8 @@ clean:
 test:
 	go test ./pkg/... -v
 
+test-integration:
+	go test ./tests/integration/... -v
+
 load:
 	docker compose run --rm simulator
