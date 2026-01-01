@@ -26,3 +26,6 @@ test-integration:
 
 load:
 	docker compose run --rm simulator
+
+benchmark:
+	python3 scripts/benchmark.py

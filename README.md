@@ -48,12 +48,12 @@ open http://localhost:9090  # Prometheus
 
 ## Features
 
-- **Intelligent Routing**: Budget, latency SLO, confidence-based tier selection
-- **Cost Optimization**: 64% cost reduction vs always-tier2 baseline
-- **Reliability**: Circuit breakers, retries, backpressure
-- **Observability**: OpenTelemetry traces, Prometheus metrics, Grafana dashboards
-- **Caching**: Redis-based response caching
-- **Rate Limiting**: Token bucket per tenant
+- **Intelligent Routing**: Budget, latency SLO, confidence-based tier selection with escalation
+- **Cost Optimization**: 63% cost reduction (measured: $0.0185 vs $0.05 per request) - see [benchmarks](docs/benchmarks.md)
+- **Reliability**: Circuit breakers per tier, retry logic with exponential backoff, backpressure handling
+- **Observability**: OpenTelemetry traces end-to-end, Prometheus metrics, Grafana dashboards
+- **Caching**: Redis-based response caching with cache hit/miss metrics
+- **Rate Limiting**: Token bucket per tenant with configurable limits
 
 ## Development
 
@@ -69,9 +69,7 @@ make logs    # View logs
 ## Documentation
 
 - [Architecture](docs/architecture.md) - System design and tradeoffs
-- [Runbooks](docs/runbooks.md) - Operational procedures
-- [Postmortems](docs/postmortems.md) - Incident analysis
-- [Benchmarks](docs/benchmarks.md) - Performance and cost analysis
+- [Benchmarks](docs/benchmarks.md) - Performance and cost analysis with real results
 
 ## Testing
 

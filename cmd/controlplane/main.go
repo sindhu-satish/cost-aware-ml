@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,8 +14,13 @@ import (
 	"github.com/cost-aware-ml/pkg/circuitbreaker"
 	"github.com/cost-aware-ml/pkg/client"
 	"github.com/cost-aware-ml/pkg/decision"
+	"github.com/cost-aware-ml/pkg/observability"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var (
@@ -75,6 +81,9 @@ func main() {
 		port = "8081"
 	}
 
+	shutdown := observability.Init("controlplane")
+	defer shutdown()
+
 	engine := decision.NewEngine()
 	clients := map[decision.Tier]*client.WorkerClient{
 		decision.Tier0: client.New(tier0URL),
@@ -106,6 +115,11 @@ func main() {
 	http.Handle("/metrics", promhttp.Handler())
 
 	http.HandleFunc("/decide", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		ctx = otel.GetTextMapPropagator().Extract(ctx, propagation.HeaderCarrier(r.Header))
+		ctx, span := observability.Tracer.Start(ctx, "controlplane.decide")
+		defer span.End()
+
 		start := time.Now()
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -263,7 +277,15 @@ func main() {
 		decisionDuration.Observe(duration)
 		decisionsTotal.WithLabelValues(string(finalTier), finalReason).Inc()
 
+		traceID := trace.SpanFromContext(ctx).SpanContext().TraceID().String()
+		finalResult["trace_id"] = traceID
+		span.SetAttributes(
+			attribute.String("tier", string(finalTier)),
+			attribute.String("reason", finalReason),
+		)
+
 		w.Header().Set("Content-Type", "application/json")
+		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(w.Header()))
 		json.NewEncoder(w).Encode(finalResult)
 	})
 
