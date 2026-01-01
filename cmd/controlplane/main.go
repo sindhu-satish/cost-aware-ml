@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,7 +12,9 @@ import (
 	"github.com/cost-aware-ml/pkg/circuitbreaker"
 	"github.com/cost-aware-ml/pkg/client"
 	"github.com/cost-aware-ml/pkg/decision"
+	"github.com/cost-aware-ml/pkg/events"
 	"github.com/cost-aware-ml/pkg/observability"
+	"github.com/cost-aware-ml/pkg/telemetry"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
@@ -64,6 +64,8 @@ func init() {
 var tier0URL = os.Getenv("TIER0_URL")
 var tier1URL = os.Getenv("TIER1_URL")
 var tier2URL = os.Getenv("TIER2_URL")
+var natsURL = os.Getenv("NATS_URL")
+var prometheusURL = os.Getenv("PROMETHEUS_URL")
 
 func main() {
 	if tier0URL == "" {
@@ -75,6 +77,12 @@ func main() {
 	if tier2URL == "" {
 		tier2URL = "http://tier2-best:8092"
 	}
+	if natsURL == "" {
+		natsURL = "nats://nats:4222"
+	}
+	if prometheusURL == "" {
+		prometheusURL = "http://prometheus:9090"
+	}
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -83,6 +91,19 @@ func main() {
 
 	shutdown := observability.Init("controlplane")
 	defer shutdown()
+
+	var eventPublisher *events.EventPublisher
+	if natsURL != "" {
+		var err error
+		eventPublisher, err = events.NewPublisher(natsURL)
+		if err != nil {
+			log.Printf("failed to connect to NATS: %v (continuing without event publishing)", err)
+		} else {
+			defer eventPublisher.Close()
+		}
+	}
+
+	telemetryCollector := telemetry.NewCollector(prometheusURL)
 
 	engine := decision.NewEngine()
 	clients := map[decision.Tier]*client.WorkerClient{
@@ -160,10 +181,14 @@ func main() {
 			Budget:       budget,
 		}
 
-		telemetry := decision.Telemetry{
-			P99LatencyMS: make(map[decision.Tier]int),
-			ErrorRate:    make(map[decision.Tier]float64),
-			QueueDepth:   make(map[decision.Tier]int),
+		telemetry, err := telemetryCollector.CollectTelemetry(ctx)
+		if err != nil {
+			log.Printf("failed to collect telemetry: %v (using empty telemetry)", err)
+			telemetry = decision.Telemetry{
+				P99LatencyMS: make(map[decision.Tier]int),
+				ErrorRate:    make(map[decision.Tier]float64),
+				QueueDepth:   make(map[decision.Tier]int),
+			}
 		}
 
 		var finalResult map[string]interface{}
@@ -283,6 +308,25 @@ func main() {
 			attribute.String("tier", string(finalTier)),
 			attribute.String("reason", finalReason),
 		)
+
+		if eventPublisher != nil {
+			confidence, _ := finalResult["confidence"].(float64)
+			latency, _ := finalResult["model_latency_ms"].(float64)
+			event := events.DecisionEvent{
+				RequestID:     requestID,
+				UserID:        userID,
+				TenantID:      tenantID,
+				Tier:          string(finalTier),
+				Reason:        finalReason,
+				Budget:        budget,
+				EstimatedCost: finalResult["estimated_cost_cents"].(float64),
+				Confidence:    confidence,
+				LatencyMS:     int(latency),
+			}
+			if err := eventPublisher.PublishDecision(ctx, event); err != nil {
+				log.Printf("failed to publish event: %v", err)
+			}
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(w.Header()))

@@ -1,10 +1,5 @@
 package decision
 
-import (
-	"fmt"
-	"time"
-)
-
 type Tier string
 
 const (
@@ -99,10 +94,24 @@ func (e *Engine) Decide(req Request, telemetry Telemetry, tier0Confidence float6
 	}
 
 	if tier0Confidence < confThreshold && budget >= e.tiers[Tier1].BaseCostCents {
-		if req.MaxLatencyMS > 0 && e.tiers[Tier1].TimeoutMS > req.MaxLatencyMS {
+		latencyMS := e.tiers[Tier1].TimeoutMS
+		if telemetry.P99LatencyMS[Tier1] > 0 {
+			latencyMS = telemetry.P99LatencyMS[Tier1]
+		}
+		if req.MaxLatencyMS > 0 && latencyMS > req.MaxLatencyMS {
 			return Decision{
 				Tier:            Tier0,
 				Reason:          "latency_slo_violation",
+				EstimatedCost:   e.tiers[Tier0].BaseCostCents,
+				EstimatedLatency: e.tiers[Tier0].TimeoutMS,
+				ConfidenceThreshold: confThreshold,
+			}
+		}
+
+		if telemetry.ErrorRate[Tier1] > 0.1 {
+			return Decision{
+				Tier:            Tier0,
+				Reason:          "tier1_high_error_rate",
 				EstimatedCost:   e.tiers[Tier0].BaseCostCents,
 				EstimatedLatency: e.tiers[Tier0].TimeoutMS,
 				ConfidenceThreshold: confThreshold,
@@ -113,17 +122,32 @@ func (e *Engine) Decide(req Request, telemetry Telemetry, tier0Confidence float6
 			Tier:            Tier1,
 			Reason:          "escalated_low_confidence",
 			EstimatedCost:   e.tiers[Tier1].BaseCostCents,
-			EstimatedLatency: e.tiers[Tier1].TimeoutMS,
+			EstimatedLatency: latencyMS,
 			ConfidenceThreshold: e.tiers[Tier1].DefaultConfThreshold,
 		}
 	}
 
 	if budget >= e.tiers[Tier2].BaseCostCents && e.tiers[Tier2].Enabled {
+		if telemetry.ErrorRate[Tier2] > 0.15 {
+			return Decision{
+				Tier:            Tier1,
+				Reason:          "tier2_high_error_rate",
+				EstimatedCost:   e.tiers[Tier1].BaseCostCents,
+				EstimatedLatency: e.tiers[Tier1].TimeoutMS,
+				ConfidenceThreshold: e.tiers[Tier1].DefaultConfThreshold,
+			}
+		}
+
+		latencyMS := e.tiers[Tier2].TimeoutMS
+		if telemetry.P99LatencyMS[Tier2] > 0 {
+			latencyMS = telemetry.P99LatencyMS[Tier2]
+		}
+
 		return Decision{
 			Tier:            Tier2,
 			Reason:          "high_budget",
 			EstimatedCost:   e.tiers[Tier2].BaseCostCents,
-			EstimatedLatency: e.tiers[Tier2].TimeoutMS,
+			EstimatedLatency: latencyMS,
 			ConfidenceThreshold: e.tiers[Tier2].DefaultConfThreshold,
 		}
 	}

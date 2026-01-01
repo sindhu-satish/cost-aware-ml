@@ -19,7 +19,8 @@ The Cost-Aware ML Inference Optimizer routes inference requests across multiple 
 - Policy evaluation (budget, latency SLO, confidence)
 - Circuit breaker state management
 - Escalation logic (tier0 → tier1 → tier2)
-- Event publishing to NATS
+- Telemetry collection from Prometheus (P99 latency, error rates, queue depth)
+- Event publishing to NATS (`inference.decisions.<tenant>`)
 
 ### Workers (`/services/workers`)
 - **tier0_fast**: Fast, cheap model (~15ms, 72% confidence)
@@ -51,14 +52,16 @@ Client → Gateway → Controlplane → Worker
 1. Check cache (Redis) - return if hit
 2. Apply rate limiting (Redis token bucket)
 3. Call controlplane with request context
-4. Controlplane evaluates:
+4. Controlplane collects telemetry from Prometheus (P99 latency, error rates, queue depth)
+5. Controlplane evaluates:
    - Budget constraints
    - Latency SLO
    - Confidence threshold
    - Circuit breaker state
-   - Queue depth
-5. Start at tier0, escalate if confidence < threshold and budget allows
-6. Return result with tier, confidence, cost, latency
+   - Telemetry data (P99 latency, error rates)
+6. Start at tier0, escalate if confidence < threshold and budget allows
+7. Publish decision event to NATS
+8. Return result with tier, confidence, cost, latency
 
 ## Cost Model
 

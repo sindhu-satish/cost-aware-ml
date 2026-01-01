@@ -94,10 +94,12 @@ services:
       - TIER2_URL=http://tier2-best:8092
       - REDIS_URL=redis://redis:6379
       - NATS_URL=nats://nats:4222
+      - PROMETHEUS_URL=http://prometheus:9090
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
     depends_on:
       - redis
       - nats
+      - prometheus
       - tier0-fast
       - tier1-mid
       - tier2-best
